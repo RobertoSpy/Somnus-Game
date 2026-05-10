@@ -16,6 +16,8 @@ interface CanvasRendererProps {
   decoyPos: Point;
   glitchEffect: Point | null;
   shakeIntensity: number;
+  isDying: boolean;
+  gameTime: number;
 }
 
 export const CanvasRenderer: React.FC<CanvasRendererProps> = ({
@@ -31,7 +33,9 @@ export const CanvasRenderer: React.FC<CanvasRendererProps> = ({
   decoyActive,
   decoyPos,
   glitchEffect,
-  shakeIntensity
+  shakeIntensity,
+  isDying,
+  gameTime
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -41,21 +45,54 @@ export const CanvasRenderer: React.FC<CanvasRendererProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Apply Screen Shake
+    // Viewport dimensions
+    const VIEWPORT_W = 800;
+    const VIEWPORT_H = 600;
+    canvas.width = VIEWPORT_W;
+    canvas.height = VIEWPORT_H;
+
+    // Clear
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
     ctx.save();
+    
+    // Apply Screen Shake
     if (shakeIntensity > 0) {
       const dx = (Math.random() - 0.5) * shakeIntensity;
       const dy = (Math.random() - 0.5) * shakeIntensity;
       ctx.translate(dx, dy);
     }
 
-    // Clear
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Camera Translation (center on player)
+    // Constrain camera to map boundaries
+    let camX = playerPos.x - VIEWPORT_W / 2;
+    let camY = playerPos.y - VIEWPORT_H / 2;
+    
+    const maxCamX = level.gridSize * TILE_SIZE - VIEWPORT_W;
+    const maxCamY = level.gridSize * TILE_SIZE - VIEWPORT_H;
+    
+    camX = Math.max(0, Math.min(camX, maxCamX));
+    camY = Math.max(0, Math.min(camY, maxCamY));
+
+    // If map is smaller than viewport, center it
+    if (maxCamX < 0) camX = maxCamX / 2;
+    if (maxCamY < 0) camY = maxCamY / 2;
+
+    ctx.translate(-camX, -camY);
 
     // Draw Map
     for (let y = 0; y < level.gridSize; y++) {
       for (let x = 0; x < level.gridSize; x++) {
+        // Culling: Only draw tiles that are visible in the viewport
+        const tileX = x * TILE_SIZE;
+        const tileY = y * TILE_SIZE;
+        
+        if (tileX + TILE_SIZE < camX || tileX > camX + VIEWPORT_W ||
+            tileY + TILE_SIZE < camY || tileY > camY + VIEWPORT_H) {
+          continue;
+        }
+
         const tile = level.map[y][x];
         if (tile === 1) {
           ctx.fillStyle = (glitchEffect?.x === x && glitchEffect?.y === y) ? '#ff0000' : '#2a2a2a';
@@ -72,8 +109,28 @@ export const CanvasRenderer: React.FC<CanvasRendererProps> = ({
           ctx.arc(x * TILE_SIZE + TILE_SIZE/2, y * TILE_SIZE + TILE_SIZE/2, 5, 0, Math.PI * 2);
           ctx.fill();
         } else if (tile === 4) {
-           ctx.fillStyle = Math.random() > 0.5 ? '#2a2a2a' : '#131313';
-           ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          if (level.id === 4 || level.id === 5) {
+            // Level 4/5 Teleport Portal Visuals
+            ctx.fillStyle = Math.random() > 0.8 ? '#ff00ff' : '#4b0082';
+            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            ctx.strokeStyle = '#ff00ff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x * TILE_SIZE + 2, y * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+            ctx.lineWidth = 1;
+          } else {
+            ctx.fillStyle = Math.random() > 0.5 ? '#2a2a2a' : '#131313';
+            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          }
+        } else if (tile === 5) {
+           if (gameTime <= 10) {
+             ctx.fillStyle = Math.random() > 0.9 ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 255, 150, 0.1)';
+             ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+             ctx.strokeStyle = 'rgba(0, 255, 150, 0.3)';
+             ctx.strokeRect(x * TILE_SIZE + Math.random() * 2, y * TILE_SIZE + Math.random() * 2, TILE_SIZE - 4, TILE_SIZE - 4);
+           } else {
+             ctx.fillStyle = '#2a2a2a';
+             ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+           }
         }
       }
     }
@@ -124,35 +181,65 @@ export const CanvasRenderer: React.FC<CanvasRendererProps> = ({
     // Fog of War
     if (!isFlashActive) {
       const offscreen = document.createElement('canvas');
-      offscreen.width = canvas.width;
-      offscreen.height = canvas.height;
+      offscreen.width = VIEWPORT_W;
+      offscreen.height = VIEWPORT_H;
       const offCtx = offscreen.getContext('2d')!;
       offCtx.fillStyle = 'black';
-      offCtx.fillRect(0, 0, canvas.width, canvas.height);
+      offCtx.fillRect(0, 0, VIEWPORT_W, VIEWPORT_H);
       offCtx.globalCompositeOperation = 'destination-out';
-      const gradient = offCtx.createRadialGradient(playerPos.x, playerPos.y, 0, playerPos.x, playerPos.y, lightRadius);
+      
+      // Calculate light center relative to viewport
+      const lightX = playerPos.x - camX;
+      const lightY = playerPos.y - camY;
+      
+      const gradient = offCtx.createRadialGradient(lightX, lightY, 0, lightX, lightY, lightRadius);
       gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
       gradient.addColorStop(0.8, 'rgba(255, 255, 255, 0.5)');
       gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
       offCtx.fillStyle = gradient;
       offCtx.beginPath();
-      offCtx.arc(playerPos.x, playerPos.y, lightRadius, 0, Math.PI * 2);
+      offCtx.arc(lightX, lightY, lightRadius, 0, Math.PI * 2);
       offCtx.fill();
+      
+      // Draw fog relative to camera
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform to draw UI/fog layer
       ctx.drawImage(offscreen, 0, 0);
+      ctx.restore();
     } else {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = 'rgba(255, 255, 255, ' + (flashTimer / 60) + ')';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(0, 0, VIEWPORT_W, VIEWPORT_H);
+      ctx.restore();
+    }
+
+    // Death Glitch Effect
+    if (isDying) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.6)';
+      ctx.fillRect(0, 0, VIEWPORT_W, VIEWPORT_H);
+      for (let i = 0; i < 30; i++) {
+        ctx.fillStyle = Math.random() > 0.5 ? '#ff0000' : '#ffffff';
+        ctx.fillRect(0, Math.random() * VIEWPORT_H, VIEWPORT_W, Math.random() * 3);
+      }
+      ctx.font = 'bold 40px monospace';
+      ctx.fillStyle = 'white';
+      ctx.textAlign = 'center';
+      if (Math.random() > 0.3) {
+        ctx.fillText("SYSTEM CRITICAL", VIEWPORT_W / 2, VIEWPORT_H / 2);
+      }
+      ctx.restore();
     }
 
     ctx.restore();
-  }, [level, playerPos, shadowPos, shadowActive, isShadowStunned, isInvisible, isFlashActive, flashTimer, lightRadius, decoyActive, decoyPos, glitchEffect, shakeIntensity]);
+  }, [level, playerPos, shadowPos, shadowActive, isShadowStunned, isInvisible, isFlashActive, flashTimer, lightRadius, decoyActive, decoyPos, glitchEffect, shakeIntensity, isDying, gameTime]);
 
   return (
-    <div className="relative border border-[#474747] shadow-2xl shadow-black">
+    <div className="relative border border-[#474747] shadow-2xl shadow-black overflow-hidden" style={{ width: 800, height: 600 }}>
       <canvas 
         ref={canvasRef} 
-        width={level.gridSize * TILE_SIZE} 
-        height={level.gridSize * TILE_SIZE}
         className="block"
       />
       <div className="scanline" />

@@ -24,6 +24,8 @@ export interface LevelConfig {
   shadowSpawnDelay: number;
   initialLightRadius: number;
   lightDecay: number;
+  lightRadiusAtLevel?: number; // Per-level light radius, overrides initialLightRadius on load
+  playerSpeed: number;
   logs: string[];
 }
 

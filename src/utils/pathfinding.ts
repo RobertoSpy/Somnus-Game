@@ -55,7 +55,7 @@ export function findPathAStar(start: Point, end: Point, map: number[][]): Point[
       const ny = current.y + dir.y;
 
       if (nx < 0 || nx >= map[0].length || ny < 0 || ny >= map.length) continue;
-      if (map[ny][nx] === 1) continue; // Wall
+      if (map[ny][nx] === 1 || map[ny][nx] === 4) continue; // Normal or Glitch Wall
       if (closedSet.has(`${nx},${ny}`)) continue;
 
       const gScore = current.g + 1;
