@@ -8,10 +8,17 @@ import { CanvasRenderer } from './game/CanvasRenderer';
 interface SomnusGameProps {
   onGameOver: () => void;
   onWin: () => void;
+  initialLevelIndex?: number;
+  onLevelChange?: (level: number) => void;
 }
 
-export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => {
-  const [currentLevelIndex, setCurrentLevelIndex] = useState(0);
+export const SomnusGame: React.FC<SomnusGameProps> = ({ 
+  onGameOver, 
+  onWin, 
+  initialLevelIndex = 0,
+  onLevelChange 
+}) => {
+  const [currentLevelIndex, setCurrentLevelIndex] = useState(initialLevelIndex);
   const level = LEVELS[currentLevelIndex];
 
   // Game State
@@ -23,6 +30,7 @@ export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => 
   const [shadowActive, setShadowActive] = useState(false);
   const [coherence, setCoherence] = useState(100);
   const [gameTime, setGameTime] = useState(0);
+  const [difficultyTime, setDifficultyTime] = useState(0);
   const [memoriesCollected, setMemoriesCollected] = useState(0);
   const [lightRadius, setLightRadius] = useState(level.initialLightRadius);
   const [shakeIntensity, setShakeIntensity] = useState(0);
@@ -48,6 +56,7 @@ export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => 
   const [decoyActive, setDecoyActive] = useState(false);
   const [decoyPos, setDecoyPos] = useState<Point>({ x: 0, y: 0 });
   const [glitchEffect, setGlitchEffect] = useState<Point | null>(null);
+  const [showHint, setShowHint] = useState(false);
 
   // Timers
   const invisibilityTimer = useRef(0);
@@ -93,9 +102,7 @@ export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => 
   // Intro Sequence Effect — runs only once per level change via currentLevelIndex
   useEffect(() => {
     setIntroPlaying(true);
-    const text = level.id === 1
-      ? "Where am I? My head hurts... I need to find the memory fragments to escape this place."
-      : level.logs.join(" ");
+    const text = level.logs.join(" ");
 
     // Show light notification if level > 1
     if (level.id > 1) {
@@ -110,9 +117,11 @@ export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => 
     const speak = () => {
       window.speechSynthesis.cancel();
       utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.9;
+      utterance.lang = 'ro-RO';
+      utterance.rate = 1.0; 
       const voices = window.speechSynthesis.getVoices();
-      const maleVoice = voices.find(v =>
+      const roVoice = voices.find(v => v.lang.startsWith('ro'));
+      const maleVoice = roVoice || voices.find(v =>
         v.name.includes('Google UK English Male') ||
         v.name.includes('Microsoft Mark') ||
         v.name.includes('Alex') ||
@@ -414,7 +423,19 @@ export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => 
         if (level.id >= 4) {
           // Levels 4 & 5: Random perk
           const perkTypes = ['phase', 'flash', 'glitch', 'decoy'] as const;
-          const randomPerk = perkTypes[Math.floor(Math.random() * perkTypes.length)];
+          let randomPerk: typeof perkTypes[number];
+          
+          if (level.id === 5) {
+            // Level 5: 35% Flash, 35% Glitch, 15% Phase, 15% Decoy
+            const roll = Math.random();
+            if (roll < 0.35) randomPerk = 'flash';
+            else if (roll < 0.70) randomPerk = 'glitch';
+            else if (roll < 0.85) randomPerk = 'phase';
+            else randomPerk = 'decoy';
+          } else {
+            randomPerk = perkTypes[Math.floor(Math.random() * perkTypes.length)];
+          }
+          
           setPerks(prev => ({ ...prev, [randomPerk]: prev[randomPerk] + 1 }));
         } else {
           // Levels 1-3: Grant all perks
@@ -433,6 +454,7 @@ export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => 
         if (currentLevelIndex < LEVELS.length - 1) {
           const nextIdx = currentLevelIndex + 1;
           setCurrentLevelIndex(nextIdx);
+          onLevelChange?.(nextIdx);
           resetLevel(nextIdx);
         } else {
           onWin();
@@ -488,19 +510,31 @@ export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => 
         const targetX = nextStep.x * TILE_SIZE + TILE_SIZE / 2;
         const targetY = nextStep.y * TILE_SIZE + TILE_SIZE / 2;
 
-        const angle = Math.atan2(targetY - shadowPos.y, targetX - shadowPos.x);
+        // Dynamic Shadow Speed: 
+        const dist = Math.hypot(playerPos.x - shadowPos.x, playerPos.y - shadowPos.y);
+        let currentSpeed: number;
         
-        // Shadow speed: starts slow, +0.1 every 20s, hard cap at player speed - 0.5 (never catches you)
-        const speedIncreases = Math.floor(gameTime / 20);
-        let currentSpeed = 0.8 + (speedIncreases * 0.1);
-        currentSpeed = Math.min(currentSpeed, level.playerSpeed - 0.5);
-        // Ensure minimum positive speed
-        currentSpeed = Math.max(0.5, currentSpeed);
+        if (level.id === 4 || level.id === 5) {
+          // Levels 4 & 5: Time-based proximity slowdown
+          if (dist < lightRadius) {
+            // Factor becomes larger (closer to 1.0) every 30s
+            const stages = [0.9, 0.95, 0.97, 1.0];
+            const stage = Math.min(Math.floor(difficultyTime / 30), stages.length - 1);
+            currentSpeed = level.playerSpeed * stages[stage];
+          } else {
+            // Outside light: very fast
+            currentSpeed = level.id === 5 ? level.playerSpeed + 5 : level.playerSpeed * 1.5;
+          }
+        } else {
+          // Levels 1-3: Fast far, 15% slower close
+          currentSpeed = dist > 200 ? level.playerSpeed * 1.5 : level.playerSpeed * 0.85;
+        }
+        const angle = Math.atan2(targetY - shadowPos.y, targetX - shadowPos.x);
 
-        setShadowPos(prev => ({
-          x: prev.x + Math.cos(angle) * currentSpeed,
-          y: prev.y + Math.sin(angle) * currentSpeed
-        }));
+        setShadowPos({
+          x: shadowPos.x + Math.cos(angle) * currentSpeed,
+          y: shadowPos.y + Math.sin(angle) * currentSpeed
+        });
       }
 
       // Collision with Shadow
@@ -508,41 +542,17 @@ export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => 
       
       // Update Shake, Audio and Coherence based on distance
       const maxDist = 400;
+      let factor = 0;
       if (distToPlayer < maxDist && !isShadowStunned) {
-        const factor = 1 - (distToPlayer / maxDist);
+        factor = 1 - (distToPlayer / maxDist);
         setShakeIntensity(factor * 12);
         if (scaryAudio.current) {
           scaryAudio.current.volume = 0.05 + (factor * 0.85);
         }
-        // Coherence now acts as a proximity "terror" meter
         setCoherence(prev => {
           const target = (1 - factor) * 100;
-          return prev + (target - prev) * 0.05; // Smooth transition
+          return prev + (target - prev) * 0.05; 
         });
-
-        // Symphony Music Logic
-        if (audioContext.current) {
-          const audioNow = audioContext.current.currentTime;
-          // Play a note every 1 second when close
-          if (audioNow - lastNoteTime.current > 1.0) {
-            lastNoteTime.current = audioNow;
-            noteToggle.current = !noteToggle.current;
-            const freq = noteToggle.current ? 800 : 200; // High and Low symphony notes
-            
-            const osc = audioContext.current.createOscillator();
-            const gain = audioContext.current.createGain();
-            osc.type = 'sine';
-            osc.frequency.value = freq;
-            
-            gain.gain.setValueAtTime(factor * 0.2, audioNow);
-            gain.gain.exponentialRampToValueAtTime(0.001, audioNow + 0.8);
-            
-            osc.connect(gain);
-            gain.connect(audioContext.current.destination);
-            osc.start(audioNow);
-            osc.stop(audioNow + 1);
-          }
-        }
 
         // Proximity Voices (Witch Style)
         const now = Date.now();
@@ -551,14 +561,11 @@ export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => 
           const phrases = ["I am coming", "Be prepared to die", "Nowhere to hide", "System critical", "I see you"];
           const phrase = phrases[Math.floor(Math.random() * phrases.length)];
           const utterance = new SpeechSynthesisUtterance(phrase);
-          
-          // Try to find a female/witch-like voice
           const voices = window.speechSynthesis.getVoices();
           const femaleVoice = voices.find(v => v.name.includes('Google UK English Female') || v.name.includes('Zira') || v.name.includes('Samantha') || v.name.includes('Microsoft Hazel'));
           if (femaleVoice) utterance.voice = femaleVoice;
-          
-          utterance.pitch = 1.8; // High pitched, witchy
-          utterance.rate = 0.85; // Slightly erratic speed
+          utterance.pitch = 1.8; 
+          utterance.rate = 0.85; 
           utterance.volume = factor;
           window.speechSynthesis.speak(utterance);
         }
@@ -567,10 +574,47 @@ export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => 
         if (scaryAudio.current) {
           scaryAudio.current.volume = 0.05;
         }
-        if (ambientGain.current && audioContext.current) {
-          ambientGain.current.gain.setTargetAtTime(0.05, audioContext.current.currentTime, 0.5);
+        setCoherence(prev => prev + (100 - prev) * 0.02); 
+      }
+
+      // 4. Global Creepy Symphony (Always Active)
+      if (audioContext.current) {
+        const audioNow = audioContext.current.currentTime;
+        if (audioNow - lastNoteTime.current > 1.2) {
+          lastNoteTime.current = audioNow;
+          noteToggle.current = !noteToggle.current;
+          
+          const symphonicVol = 0.04 + (factor * 0.2); // Base creepy volume + proximity
+          const baseFreq = noteToggle.current ? 110 : 165; 
+          
+          [baseFreq, baseFreq * 1.02].forEach((f, i) => {
+            const osc = audioContext.current!.createOscillator();
+            const gain = audioContext.current!.createGain();
+            osc.type = i === 0 ? 'sine' : 'triangle';
+            osc.frequency.value = f;
+            gain.gain.setValueAtTime(symphonicVol * (i === 0 ? 1 : 0.5), audioNow);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioNow + 1.1);
+            osc.connect(gain);
+            gain.connect(audioContext.current!.destination);
+            osc.start(audioNow);
+            osc.stop(audioNow + 1.2);
+          });
+
+          // Occasional high creepy accent
+          if (Math.random() > 0.7 || factor > 0.5) {
+            const hOsc = audioContext.current.createOscillator();
+            const hGain = audioContext.current.createGain();
+            hOsc.type = 'sine';
+            hOsc.frequency.setValueAtTime(1000 + Math.random() * 1000, audioNow);
+            hGain.gain.setValueAtTime(0, audioNow);
+            hGain.gain.linearRampToValueAtTime(symphonicVol * 0.3, audioNow + 0.1);
+            hGain.gain.exponentialRampToValueAtTime(0.001, audioNow + 0.5);
+            hOsc.connect(hGain);
+            hGain.connect(audioContext.current.destination);
+            hOsc.start(audioNow);
+            hOsc.stop(audioNow + 0.5);
+          }
         }
-        setCoherence(prev => prev + (100 - prev) * 0.02); // Recover stability when far
       }
 
       if (distToPlayer < 20 && !isInvisible && !isDying) {
@@ -586,7 +630,11 @@ export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => 
     }
 
     // 4. Time only (no light decay)
+    // 4. Time Update
     setGameTime(prev => prev + 1/60);
+    if (level.id >= 4) {
+      setDifficultyTime(prev => prev + 1/60);
+    }
     // Light stays fixed per level — it was already set when the level loaded
 
     // 5. Temporal Walls Update (Level 5)
@@ -599,8 +647,15 @@ export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => 
       }
     }
 
+    // Hint System (Levels 4 & 5)
+    const hintCycle = 40;
+    const hintDuration = 5;
+    const timeInCycle = difficultyTime % hintCycle;
+    const hintActive = (level.id >= 4) && (difficultyTime >= hintCycle) && (timeInCycle < hintDuration);
+    if (hintActive !== showHint) setShowHint(hintActive);
+
     requestRef.current = requestAnimationFrame(update);
-  }, [playerPos, shadowPos, shadowActive, isShadowStunned, gameTime, level, coherence, onGameOver, onWin, currentLevelIndex, resetLevel, memoriesCollected, lightRadius, isInvisible, decoyActive, decoyPos, perks.glitch, isDying]);
+  }, [playerPos, shadowPos, shadowActive, isShadowStunned, gameTime, level, coherence, onGameOver, onWin, currentLevelIndex, resetLevel, memoriesCollected, lightRadius, isInvisible, decoyActive, decoyPos, perks.glitch, isDying, showHint]);
 
   useEffect(() => {
     const initAudio = () => {
@@ -657,6 +712,7 @@ export const SomnusGame: React.FC<SomnusGameProps> = ({ onGameOver, onWin }) => 
         shakeIntensity={shakeIntensity}
         isDying={isDying}
         gameTime={gameTime}
+        showHint={showHint}
       />
 
       <HUD 

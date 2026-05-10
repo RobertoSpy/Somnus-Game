@@ -29,7 +29,7 @@ export const LEVELS: LevelConfig[] = [
     lightDecay: 0,
     lightRadiusAtLevel: 220,
     playerSpeed: 3.5,
-    logs: ["Subiectul #42 detectat.", "Simularea se inițializează...", "Găsește fragmentele de memorie pentru a stabiliza sistemul."]
+    logs: ["Unde sunt? Mă doare capul...", "Trebuie să găsesc fragmentele de memorie pentru a scăpa din acest loc."]
   },
   {
     id: 2,
@@ -61,7 +61,7 @@ export const LEVELS: LevelConfig[] = [
     lightDecay: 0.1,
     lightRadiusAtLevel: 180,
     playerSpeed: 3.0,
-    logs: ["Sistem corupt detectat.", "Umbra a fost eliberată.", "Nu te lăsa prins."]
+    logs: ["Am trecut mai departe...", "Mai am puțin. Încep să îmi amintesc.", "Oare sunt într-un vis?"]
   },
   {
     id: 3,
@@ -77,7 +77,7 @@ export const LEVELS: LevelConfig[] = [
     lightDecay: 0.2,
     lightRadiusAtLevel: 150,
     playerSpeed: 2.6,
-    logs: ["Integritatea sistemului: 45%.", "Lumina se stinge.", "Timpul expiră."]
+    logs: ["Am trecut mai departe...", "Mai am puțin. Încep să îmi amintesc.", "Oare sunt într-un vis?"]
   },
   {
     id: 4,
@@ -93,7 +93,7 @@ export const LEVELS: LevelConfig[] = [
     lightDecay: 0.3,
     lightRadiusAtLevel: 120,
     playerSpeed: 2.2,
-    logs: ["SIMULARE CRITICĂ.", "REALITATEA SE DESCOMPUNE.", "EVADEAZĂ ACUM."]
+    logs: ["Am trecut mai departe...", "Mai am puțin. Încep să îmi amintesc.", "Oare sunt într-un vis?"]
   },
   {
     id: 5,
@@ -109,12 +109,12 @@ export const LEVELS: LevelConfig[] = [
     lightDecay: 0.4,
     lightRadiusAtLevel: 90,
     playerSpeed: 1.8,
-    logs: ["ULTIMA ȘANSĂ.", "SISTEMUL SE ÎNCHIDE.", "ALEGE DRUMUL CORECT."]
+    logs: ["Am trecut mai departe...", "Mai am puțin. Încep să îmi amintesc.", "Oare sunt într-un vis?"]
   }
 ];
 
 // Helper to generate a valid procedural map using a maze algorithm
-function generateValidMap(gridSize: number, wallChance: number, start: Point, end: Point, memories: Point[], hasGlitchWalls = false, isLevel5 = false): { map: number[][], start: Point, end: Point, memories: Point[] } {
+function generateValidMap(gridSize: number, wallChance: number, start: Point, end: Point, memories: Point[], hasGlitchWalls = false, isLevel5 = false, braidOverride?: number): { map: number[][], start: Point, end: Point, memories: Point[] } {
   let map: number[][] = [];
   let valid = false;
   let attempts = 0;
@@ -155,7 +155,7 @@ function generateValidMap(gridSize: number, wallChance: number, start: Point, en
 
     // 3. Punch a FEW extra holes to create 1-2 alternate routes (NOT a fully open braid)
     // wallChance = 0.12~0.15: only ~8-12% of dead walls are punched through
-    const braidFactor = wallChance * 0.6; // e.g. 0.15 * 0.6 = 0.09 -> 9% of walls get removed
+    const braidFactor = braidOverride !== undefined ? braidOverride : wallChance * 0.6;
     for (let y = 1; y < gridSize - 1; y++) {
       for (let x = 1; x < gridSize - 1; x++) {
         if (map[y][x] === 1 && Math.random() < braidFactor) {
@@ -296,7 +296,7 @@ function placeMemories(map: number[][], gridSize: number, start: Point, end: Poi
   // Level 4
   const corners4 = getRandomCorners(LEVELS[3].gridSize);
   const result4 = generateValidMap(LEVELS[3].gridSize, 0.15, corners4.start, corners4.end, [], true, false);
-  const mems4 = placeMemories(result4.map, LEVELS[3].gridSize, result4.start, result4.end, 12);
+  const mems4 = placeMemories(result4.map, LEVELS[3].gridSize, result4.start, result4.end, 40);
   mems4.forEach(m => result4.map[m.y][m.x] = 3);
   LEVELS[3].map = result4.map;
   LEVELS[3].playerStart = result4.start;
@@ -304,9 +304,10 @@ function placeMemories(map: number[][], gridSize: number, start: Point, end: Poi
   LEVELS[3].memories = mems4;
 
   // Level 5
+  // Level 5: High Braid Factor (0.35) for 3+ paths
   const corners5 = getRandomCorners(LEVELS[4].gridSize);
-  const result5 = generateValidMap(LEVELS[4].gridSize, 0.12, corners5.start, corners5.end, [], true, true);
-  const mems5 = placeMemories(result5.map, LEVELS[4].gridSize, result5.start, result5.end, 15);
+  const result5 = generateValidMap(LEVELS[4].gridSize, 0.12, corners5.start, corners5.end, [], true, true, 0.35);
+  const mems5 = placeMemories(result5.map, LEVELS[4].gridSize, result5.start, result5.end, 75);
   mems5.forEach(m => result5.map[m.y][m.x] = 3);
   LEVELS[4].map = result5.map;
   LEVELS[4].playerStart = result5.start;

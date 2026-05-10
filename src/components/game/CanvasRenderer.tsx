@@ -18,6 +18,7 @@ interface CanvasRendererProps {
   shakeIntensity: number;
   isDying: boolean;
   gameTime: number;
+  showHint: boolean;
 }
 
 export const CanvasRenderer: React.FC<CanvasRendererProps> = ({
@@ -35,7 +36,8 @@ export const CanvasRenderer: React.FC<CanvasRendererProps> = ({
   glitchEffect,
   shakeIntensity,
   isDying,
-  gameTime
+  gameTime,
+  showHint
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -133,6 +135,31 @@ export const CanvasRenderer: React.FC<CanvasRendererProps> = ({
            }
         }
       }
+    }
+
+    // Hint Arrow
+    if (showHint) {
+      const exitPos = level.exitPos;
+      const exitX = exitPos.x * TILE_SIZE + TILE_SIZE / 2;
+      const exitY = exitPos.y * TILE_SIZE + TILE_SIZE / 2;
+      const angle = Math.atan2(exitY - playerPos.y, exitX - playerPos.x);
+      
+      ctx.save();
+      ctx.translate(playerPos.x, playerPos.y);
+      ctx.rotate(angle);
+      
+      const pulse = Math.sin(Date.now() / 150) * 5;
+      
+      ctx.beginPath();
+      ctx.moveTo(40 + pulse, 0);
+      ctx.lineTo(25 + pulse, -8);
+      ctx.lineTo(30 + pulse, 0);
+      ctx.lineTo(25 + pulse, 8);
+      ctx.closePath();
+      
+      ctx.fillStyle = '#00ff00';
+      ctx.fill();
+      ctx.restore();
     }
 
     // Draw Decoy
